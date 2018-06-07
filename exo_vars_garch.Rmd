@@ -1,0 +1,185 @@
+---
+title: "Exogenous variables GARCH"
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document: default
+---
+
+Earlier contributions in the literature (Kalev et al., 2004;
+Bomfim, 2001, inter alia) https://www.sciencedirect.com/science/article/pii/S0378426603001262 suggest the use of GARCH (Engle, 1982;
+Bollerslev, 1986) http://www.jstor.org/stable/1912773?casa_token=u70jYdYfQiYAAAAA:SW-edrtQyiFR4KifaoqS-ArpjLued8DA3n4JhtqN8HWgbyTq_9jkKpyKkKVy2BHLVo4ZZkyNbdwn5vECozBBh5Jztg1N6q2ALW_c8KwYYAEp67IX&seq=1#page_scan_tab_contents models for approximating historical volatility.
+
+Although this approach can be expected to be less accurate than
+the realized volatility used previously, since the latter utilizes
+much more data, it has the advantage of being able to model the
+conditional mean and variance at the same time in a straightforward
+manner. Moreover, a wealth of empirical evidence exists on
+the application of GARCH models in finance. We model conditional
+volatility through the use of a GARCH(1,1) market model that includes
+information demand and supply variables in the conditional
+variance specification: 
+
+\begin{align}
+    r_t = \mu + \lambda\nu_t + \epsilon_t,\hspace{0.5pt}\epsilon_t | \Omega_{t-1} \approx N(o,\sigma^2_t)\\
+    \sigma^2_t = w + \alpha\epsilon^2_{t-1} + \beta\sigma^2_{t-1} + \gamma\pi_t + \delta\phi_t
+\end{align}
+
+where $r_t$ is the stock return at interval $t$, $\mu$ is a constant, $\epsilon_t$ are the serially uncorrelated errors of stock returns with mean zero, $\Omega_{t-1}$
+denotes the information set, $\sigma^2_t$
+is the conditional variance of $\epsilon_t$,
+whereas $\nu_t$ is the market return, $\pi_t$ is idiosyncratic information demandand  $\phi_t$ is market related information demand .
+
+
+The first thing is to import the data previously generated. 
+
+```{r}
+library(rugarch)
+library(tidyverse)
+library(lubridate)
+# Format numbers
+options(scipen = 50)
+df <- read_csv('/data/GARCH_model.csv')
+head(df)
+
+```
+
+Now estimate the model for all time series
+
+```{r}
+id_ticker = unique(df$Ticker)
+
+exo_levels = c('SPY')
+exo_vol = c('SVI','market_info')
+  GARCH_model <- function(x){
+                      # ''' For ticker x estimate the GARCH model'''
+                      
+                      # x =tail(x,200)
+                      # Specify model
+                      spec1 =ugarchspec(variance.model=list(model="sGARCH",
+                                  external.regressors =  as.matrix(subset(x, select = exo_vol))),
+                      mean.model=list(armaOrder=c(0,0), include.mean=TRUE ))
+                      
+                      # Fit model
+                      fit = ugarchfit(spec = spec1, x$ret, solver = 'hybrid')
+                      # Pvalues
+                      Pvalues = fit@fit$robust.matcoef[,4]
+                      names(Pvalues) =lapply(names(fit@fit$coef), function(x){return(paste0('p_',x))})
+                      # Coeficients
+                      Coeficients = fit@fit$robust.matcoef[,1]
+                      
+                      ret = c(Pvalues, Coeficients)
+                      return(ret)
+}
+
+garch_results = df %>% 
+  split(.$Ticker) %>% 
+  map(GARCH_model)
+
+garch_results = t(as.data.frame(garch_results))
+garch_results
+```
+
+Financial theory suggests that an asset with a higher expected risk would pay a higher
+return on average.The relationship between investors’ expected return and risk was presented in
+an ARCH framework by Engle et al. (1987). They introduced the ARCH in mean, or
+ARCH-M, model where the conditional mean is an explicit function of the conditional
+variance of the process. \
+
+To overcome some weaknesses of the GARCH model in handling financial time
+series, Nelson (1991) proposes the exponential GARCH (EGARCH) model. In particular,
+to allow for asymmetric effects between positive and negative asset returns,
+he considers a weighted innovation function for the conditional variance. \
+
+Basing ourselves in the AIC criterion, Ljung-Box test for residual autocorrelations and significance of the parameters we estimate an EGARCH-M(1,1), which takes into account the past 2 effects. 
+
+\begin{align}
+    r_t = \mu + \gamma\sigma^2_t + \epsilon_t,\hspace{0.5pt}\epsilon_t | \Omega_{t-1} \approx N(0,\sigma^2_t)\\
+   \ln \sigma^2_t = \omega+\alpha(\dfrac{\epsilon_{t-1}}{\sigma_{t-1}}) + \gamma \|\dfrac{\epsilon_{t-1}}{\sigma_{t-1}}\| + \beta\ln\sigma^2_{t-1} +\delta\phi_t
+\end{align}
+
+where $r_t$ is the stock return at interval $t$, $\mu$ and $\omega$ are constant terms, $\epsilon_t$ are the serially uncorrelated errors of stock returns with mean zero,  $\sigma^2_t$
+is the conditional variance of $\epsilon_t$,
+whereas $\phi_t$ is market related information demand .\
+
+In this framework we can interpret:\
+
+- $\beta$ can be interpreted as the persistence of the model. \
+
+- $\alpha$ relates standardized shocks to volatility in an
+asymmetric style. For $\alpha$ < 0 the future conditional variances will increase
+proportionally more as a result of a negative shock than for a positive shock
+of the same absolute magnitude (Bollerslev, Mikkelsen, 1996).\
+
+- $\gamma$ relates lagged standardized innovations
+to volatility in a symmetric way.\
+
+- $\delta$ represents the effect that market information demand has on conditional variance (at time $t$).\
+
+- $\gamma$ represents the risk premium,
+i.e., the increase in the expected rate of return due to an increase in the variance of the
+return.\
+
+
+
+```{r}
+
+try_garch = function(model, vt, includemean, archm, go){
+  
+  
+  id_ticker = unique(df$Ticker)
+
+exo_levels = c('SPY')
+exo_vol = c('market_info')
+  GARCH_model <- function(x){
+                      # ''' For ticker x estimate the GARCH model'''
+                      x = x %>% 
+                        arrange(Date)
+                      # x =tail(x,200)
+                      # Specify model
+                      spec1 =ugarchspec(variance.model=list(model=model,variance.targeting =vt,
+                                                            garchOrder = go,
+                                  external.regressors =  as.matrix(subset(x, select = exo_vol))),
+                  mean.model=list(armaOrder=c(0,0), include.mean=includemean, archm = archm),
+distribution.model = 'sstd'
+)
+                      
+                      # Fit model
+                      fit = ugarchfit(spec = spec1, x$ret, solver = 'hybrid')
+                      # Pvalues
+                      Pvalues = fit@fit$robust.matcoef[,4]
+                      names(Pvalues) =lapply(names(fit@fit$coef), function(x){return(paste0('p_',x))})
+                      # Coeficients
+                      Coeficients = fit@fit$robust.matcoef[,1]
+                      
+                      ret = c(Pvalues, Coeficients)
+                      return(ret)
+}
+
+garch_results = df %>% 
+  split(.$Ticker) %>% 
+  map(GARCH_model)
+
+garch_results = t(as.data.frame(garch_results))
+
+
+print(sum(as.data.frame(garch_results)$p_vxreg1 < 0.1))
+print(sum(as.data.frame(garch_results)$p_vxreg1 < 0.05))
+
+return(garch_results)
+
+}
+
+
+garch_results = try_garch(model = 'eGARCH', vt = FALSE, includemean = TRUE, archm = TRUE, go = c(1,1))
+
+colnames(garch_results)
+
+```
+
+
+Finally, write results to a csv file
+
+```{r}
+write.csv(garch_results, file = "/project/data/GARCH_results.csv")
+```
