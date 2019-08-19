@@ -1,9 +1,9 @@
 ---
 title: "Exogenous variables GARCH"
 output:
-  pdf_document: default
   html_notebook: default
   html_document: default
+  pdf_document: default
 ---
 
 Earlier contributions in the literature (Kalev et al., 2004;
@@ -39,7 +39,7 @@ library(tidyverse)
 library(lubridate)
 # Format numbers
 options(scipen = 50)
-df <- read_csv('/data/GARCH_model.csv')
+df <- read_csv('./data/GARCH_model.csv')
 head(df)
 
 ```
@@ -181,5 +181,5 @@ colnames(garch_results)
 Finally, write results to a csv file
 
 ```{r}
-write.csv(garch_results, file = "/project/data/GARCH_results.csv")
+write.csv(garch_results, file = "./data/GARCH_results.csv")
 ```
